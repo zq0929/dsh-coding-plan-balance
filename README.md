@@ -21,7 +21,7 @@
 - **常驻输入框下方**：注册进 `conversation.composer.dock`，与 DSH 自带的 activity / usage 两个胶囊并排，不占对话区域。
 - **一眼看到三件事**：套餐名 · 周期已用/限额 · 使用百分比 · 5 小时窗口用量。
 - **悬停看细节**：套餐状态、周期已用/限额/百分比、剩余额度、重置时间、5h 窗口结束时间、本次读取时间。
-- **点击刷新**，平时按 Host 下发的间隔（默认 60s）自动轮询；多个会话共享 Host 端的短复用窗口，不会放大请求量。
+- **点击刷新**（强制取最新），平时按 Host 下发的间隔（默认 60s）自动轮询；轮询走 Host 的复用窗口，多个会话同时看也只多打一次上游请求。
 - **失败不消失**：未配置 Key、网络不通、额度被阻断时，胶囊留在原位并显示原因，数字改用主题的警告/错误色。
 - **同样的能力给 agent**：注册 `coding_plan_balance` 工具，可以直接问"还剩多少额度"。
 - **主题与语言**：只用 `--dsw-alias-*` 主题 token（自动跟随明/暗），文案走 Client locale（中 / 英）。
@@ -64,7 +64,7 @@
 | `apiKeyEnv` | `CTRIP_API_KEY` | 凭据名 |
 | `apiKey` | 空 | 显式密钥，优先于 `apiKeyEnv` |
 | `refreshSeconds` | `60` | 页面轮询间隔，小于 20 按 20 处理 |
-| `cacheSeconds` | `10` | Host 端快照复用窗口，多会话共享一次请求 |
+| `cacheSeconds` | `10` | Host 端快照复用窗口：不带 `refresh` 的读取在此窗口内复用同一份快照；并发读取一律合并成一次上游请求 |
 | `timeoutMs` | `8000` | 单次上游请求超时 |
 | `routePath` | `/api/coding-plan.balance` | 页面读取额度用的 Host 路由（必须以 `/api/` 开头） |
 | `tool` | `true` | 是否注册 `coding_plan_balance` 工具 |
@@ -104,7 +104,7 @@ A persistent **Coding Plan quota pill** for the DSH Web composer dock: it shows 
 ```
 
 - **Where it renders**: one entry in `conversation.composer.dock`, beside the shipped activity/usage pills, using only `--dsw-alias-*` theme tokens and Client locale dictionaries (zh/en).
-- **Interaction**: hover for the full reading (plan status, cycle used/limit/percent, remaining, reset time, 5-hour window end, last read time); click to refresh; otherwise it polls on the interval the Host reports (60s by default), sharing one short server-side reuse window across sessions.
+- **Interaction**: hover for the full reading (plan status, cycle used/limit/percent, remaining, reset time, 5-hour window end, last read time); click to refresh immediately, which forces a fresh read; otherwise it polls on the interval the Host reports (60s by default) through the Host's reuse window, so several sessions watching at once cost one upstream request.
 - **Credential**: the same key your `ctrip` model provider uses — `config.apiKey`, then `ctx.credentials.resolve(apiKeyEnv)` (default `CTRIP_API_KEY`), then `process.env`. The key never reaches the page; only quota numbers do.
 - **Also an agent tool**: `coding_plan_balance` returns the same snapshot, so the UI action and the tool share one implementation.
 - **Host side**: the plugin calls `/api/coding-plan/quota/me`, `/api/coding-plan/5h-usage`, and `/api/user/api-tokens/userinfo`, normalizes one snapshot, and serves it on `/api/coding-plan.balance` through `ctx.connection.fetch.register()`, which owns browser-session authentication, Host/Origin checks, and the 401 for cookie-less requests.
@@ -135,7 +135,7 @@ Override the row by id in your profile's `cordis.patch.yml`:
 | `apiKeyEnv` | `CTRIP_API_KEY` | Credential name |
 | `apiKey` | empty | Explicit key, takes priority over `apiKeyEnv` |
 | `refreshSeconds` | `60` | Page poll interval (minimum 20) |
-| `cacheSeconds` | `10` | Host-side snapshot reuse window |
+| `cacheSeconds` | `10` | Host-side reuse window: reads without `refresh` share one snapshot inside it, and concurrent reads always collapse into one upstream request |
 | `timeoutMs` | `8000` | Upstream request timeout |
 | `routePath` | `/api/coding-plan.balance` | Host route the page reads (must start with `/api/`) |
 | `tool` | `true` | Register the `coding_plan_balance` tool |

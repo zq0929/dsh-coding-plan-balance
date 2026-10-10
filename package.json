@@ -1,6 +1,6 @@
 {
   "name": "dsh-coding-plan-balance",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Coding Plan quota pill for the DSH Web composer dock: the billing cycle's USD usage and the rolling 5-hour window, read with the credential your ctrip model provider already uses.",
   "type": "module",
   "license": "MIT",

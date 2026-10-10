@@ -146,14 +146,15 @@ window.__ModuleLoader__.load({
     function BalancePill(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => (DICT.en[key] !== undefined ? DICT.en[key] : key)
       const [state, setState] = React.useState({ phase: 'loading', value: null, error: '' })
-      const [attempt, setAttempt] = React.useState(0)
+      /** One read trigger: mounting and clicking ask for a fresh snapshot, the timer reuses the Host's window. */
+      const [attempt, setAttempt] = React.useState({ seq: 0, force: true })
       const intervalRef = React.useRef(60)
 
       React.useEffect(() => {
         let cancelled = false
         const controller = new AbortController()
         setState((previous) => ({ ...previous, phase: 'loading' }))
-        requestSnapshot(true, controller.signal)
+        requestSnapshot(attempt.force, controller.signal)
           .then((value) => {
             if (cancelled) return
             const seconds = Number(value.refreshSeconds)
@@ -176,7 +177,7 @@ window.__ModuleLoader__.load({
 
       React.useEffect(() => {
         const id = window.setInterval(() => {
-          setAttempt((previous) => previous + 1)
+          setAttempt((previous) => ({ seq: previous.seq + 1, force: false }))
         }, Math.max(20, intervalRef.current) * 1000)
         return () => {
           window.clearInterval(id)
@@ -233,7 +234,7 @@ window.__ModuleLoader__.load({
         title,
         'aria-label': `${t('plan')}: ${title.replace(/\n/g, ' ')}`,
         onClick: () => {
-          setAttempt((previous) => previous + 1)
+          setAttempt((previous) => ({ seq: previous.seq + 1, force: true }))
         },
       },
       h(GaugeIcon, { className: loading ? 'dshcp-busy' : undefined }),
