@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Coding Plan 余额",
+    "description": "在输入框下方显示 Coding Plan 本计费周期已用/限额（USD）、5 小时窗口用量与重置时间。"
+  }
+}

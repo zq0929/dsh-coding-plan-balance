@@ -1,0 +1,8 @@
+- insert:
+    - id: coding-plan-balance
+      name: 'dsh-coding-plan-balance'
+      config:
+        baseUrl: https://ada-cli-go.ctripcorp.com
+        fallbackBaseUrl: http://ada-cli-golang.ctripcorp.com
+        apiKeyEnv: CTRIP_API_KEY
+        refreshSeconds: 60

@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Coding Plan Balance",
+    "description": "Shows the Coding Plan billing-cycle usage and limit in USD, plus the rolling 5-hour window usage and reset time, as a pill under the composer."
+  }
+}
