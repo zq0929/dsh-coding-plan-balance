@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Coding Plan 余额",
-    "description": "在输入框下方显示 Coding Plan 本计费周期已用/限额（USD）、auto 模型与高阶模型的独立月额度、今日用量，以及 5 小时窗口用量与重置时间。"
+    "description": "在会话标题栏显示 Coding Plan 本计费周期已用/限额（USD）、auto 模型与高阶模型的独立月额度、今日用量，以及 5 小时窗口用量与重置时间。"
   }
 }

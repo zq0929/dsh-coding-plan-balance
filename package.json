@@ -1,7 +1,7 @@
 {
   "name": "dsh-coding-plan-balance",
-  "version": "1.1.0",
-  "description": "Coding Plan quota pill for the DSH Web composer dock: billing-cycle usage, the separate auto-model and high-cost-model monthly buckets, today's spend and the rolling 5-hour window, read with the credential your ctrip model provider already uses.",
+  "version": "1.2.0",
+  "description": "Coding Plan quota chip in the DSH Web session header: billing-cycle usage, the separate auto-model and high-cost-model monthly buckets, today's spend and the rolling 5-hour window, read with the credential your ctrip model provider already uses.",
   "type": "module",
   "license": "MIT",
   "repository": {

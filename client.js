@@ -1,6 +1,7 @@
 /**
- * Browser half of the Coding Plan balance widget: one composer-dock pill that
- * polls the Host's own authenticated route and shows the plan's USD usage.
+ * Browser half of the Coding Plan balance widget: one compact chip in the
+ * Session header's utility row that polls the Host's own authenticated route
+ * and shows the plan's USD usage.
  */
 
 window.__ModuleLoader__.load({
@@ -56,17 +57,21 @@ window.__ModuleLoader__.load({
     }
 
     const CSS = [
-      '.dshcp-anchor{display:inline-flex;min-width:0;font-size:calc(var(--dsh-content-font-size-secondary,13px) - 1px);',
-      'line-height:calc(20px + var(--dsh-content-font-delta-secondary,0px))}',
-      '.dshcp-pill{display:inline-flex;align-items:center;gap:6px;box-sizing:border-box;max-width:100%;padding:1px 8px;',
-      'border:none;border-radius:999px;background:transparent;color:var(--dsw-alias-label-tertiary);font:inherit;',
-      'font-variant-numeric:tabular-nums;line-height:inherit;white-space:nowrap;cursor:pointer}',
+      '.dshcp-anchor{display:inline-flex;align-items:center;min-width:0;max-width:180px;',
+      'font-size:12px;line-height:22px}',
+      '.dshcp-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;max-width:100%;height:22px;',
+      'padding:0 6px;border:none;border-radius:var(--dsw-radius-xs);background:transparent;',
+      'color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;',
+      'white-space:nowrap;overflow:hidden;cursor:pointer}',
       '.dshcp-pill:hover{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary)}',
+      '.dshcp-pill:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
       '.dshcp-pill[data-state="blocked"]{color:var(--dsw-alias-state-warn-primary)}',
       '.dshcp-pill[data-state="error"]{color:var(--dsw-alias-state-error-primary)}',
-      '.dshcp-pill svg{width:14px;height:14px;flex:none}',
+      '.dshcp-pill svg{width:13px;height:13px;flex:none}',
       '.dshcp-label{min-width:0;overflow:hidden;text-overflow:ellipsis}',
-      '.dshcp-dot{color:var(--dsw-alias-label-tertiary);opacity:.7;margin:0 4px}',
+      // The title row is an inline-size container; narrow rows shed the text
+      // first, keeping the icon (and the tooltip) clickable.
+      '@container (max-width: 560px){.dshcp-label{display:none}.dshcp-pill{padding:0 4px}}',
       '.dshcp-busy{animation:dshcp-spin 1s linear infinite}',
       '@keyframes dshcp-spin{to{transform:rotate(360deg)}}',
       '@media (prefers-reduced-motion: reduce){.dshcp-busy{animation:none}}',
@@ -143,22 +148,24 @@ window.__ModuleLoader__.load({
       }))
     }
 
-    /** One text run of the pill, joined with separators. */
-    function runs(parts) {
-      const children = []
-      parts.forEach((part, index) => {
-        if (index > 0) children.push(h('span', { key: `sep-${index}`, className: 'dshcp-dot', 'aria-hidden': true }, '·'))
-        children.push(h('span', { key: `part-${index}` }, part))
-      })
-      return children
+    /** Compact USD amount: cents only when they carry information. */
+    function amount(value) {
+      const rounded = Math.round((typeof value === 'number' && Number.isFinite(value) ? value : 0) * 100) / 100
+      return `$${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)}`
+    }
+
+    /** Compact limit, naming the unconfigured case. */
+    function limitCompact(value, t) {
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? amount(value) : t('unlimited')
     }
 
     /**
-     * Composer-dock pill showing the Coding Plan cycle usage and the rolling
-     * 5-hour window. It polls on the interval the Host reports and refetches on
-     * click; a failed read stays visible instead of hiding the entry.
+     * Header chip showing the bucket that is actually being spent: the auto
+     * model's monthly quota when the plan has one, otherwise the cycle quota.
+     * It polls on the interval the Host reports and refetches on click; a
+     * failed read stays visible instead of hiding the entry.
      */
-    function BalancePill(props) {
+    function BalanceChip(props) {
       const t = typeof props.t === 'function' ? props.t : (key) => (DICT.en[key] !== undefined ? DICT.en[key] : key)
       const [state, setState] = React.useState({ phase: 'loading', value: null, error: '' })
       /** One read trigger: mounting and clicking ask for a fresh snapshot, the timer reuses the Host's window. */
@@ -207,23 +214,19 @@ window.__ModuleLoader__.load({
       const missingKey = !ok && value !== null && value.code === 'no-key'
       const showAuto = ok && (value.autoEnabled === true || value.autoUsedUsd > 0)
       const showAdvanced = ok && (value.advancedEnabled === true || value.advancedUsedUsd > 0)
-      const parts = []
+      /** One short run for the header chip; the tooltip carries the detail. */
+      let label
 
       if (ok) {
-        parts.push(value.planName === '' ? t('plan') : value.planName)
-        parts.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`)
-        if (showAuto) {
-          parts.push(`${t('auto')} ${usd(value.autoUsedUsd)} / ${limit(value.autoLimitUsd, t)} (${pct(value.autoPercent)}%)`)
-        }
-        if (value.fiveHourEnabled) {
-          parts.push(`${t('fiveHour')} ${usd(value.fiveHourUsedUsd)} / ${limit(value.fiveHourLimitUsd, t)}`)
-        }
-        if (value.isBlocked === true) parts.push(t('blocked'))
-        if (autoExhausted) parts.push(t('autoUsedUp'))
+        label = showAuto
+          ? `${t('auto')} ${amount(value.autoUsedUsd)}/${limitCompact(value.autoLimitUsd, t)}`
+          : `${amount(value.usedUsd)}/${limitCompact(value.limitUsd, t)}`
+        if (value.isBlocked === true) label = `${label} ${t('blocked')}`
+        else if (autoExhausted) label = `${label} ${t('autoUsedUp')}`
       } else if (loading) {
-        parts.push(t('plan'), t('loading'))
+        label = t('loading')
       } else {
-        parts.push(t('plan'), missingKey ? t('noKey') : t('error'))
+        label = missingKey ? t('noKey') : t('error')
       }
 
       const detail = []
@@ -255,7 +258,7 @@ window.__ModuleLoader__.load({
       detail.push(t('refreshHint'))
       const title = detail.join('\n')
 
-      const pill = h('button', {
+      const chip = h('button', {
         type: 'button',
         className: 'dshcp-pill',
         'data-state': loading ? 'loading' : ok ? (blocked ? 'blocked' : 'ready') : 'error',
@@ -267,11 +270,11 @@ window.__ModuleLoader__.load({
         },
       },
       h(GaugeIcon, { className: loading ? 'dshcp-busy' : undefined }),
-      h('span', { className: 'dshcp-label' }, runs(parts)))
+      h('span', { className: 'dshcp-label' }, label))
 
       return h(React.Fragment, null,
         h('style', { key: 'style' }, CSS),
-        h('span', { className: 'dshcp-anchor' }, pill))
+        h('span', { className: 'dshcp-anchor' }, chip))
     }
 
     return {
@@ -282,12 +285,14 @@ window.__ModuleLoader__.load({
           ctx.effect(() => locale.register(NS, 'zh', DICT.zh), 'coding-plan-balance: zh dictionary')
           ctx.effect(() => locale.register(NS, 'en', DICT.en), 'coding-plan-balance: en dictionary')
         }
-        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
-          name: 'conversation.composer.dock',
+        // The Session header's right-aligned utility row: always on screen,
+        // and it costs no vertical space below the composer.
+        ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+          name: 'conversation.session.header.utilities',
           id: 'coding-plan-balance',
-          order: 2,
+          order: 10,
           locale: NS,
-        }, BalancePill))
+        }, BalanceChip))
       },
     }
   },
