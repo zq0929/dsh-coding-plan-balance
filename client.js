@@ -69,6 +69,8 @@ window.__ModuleLoader__.load({
       '.dshcp-pill:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
       '.dshcp-pill[data-state="blocked"]{color:var(--dsw-alias-state-warn-primary)}',
       '.dshcp-pill[data-state="error"]{color:var(--dsw-alias-state-error-primary)}',
+      '.dshcp-pill[data-state="loading"]{cursor:progress}',
+      '.dshcp-pill[data-state="loading"] .dshcp-label{opacity:.5}',
       '.dshcp-pill svg{width:13px;height:13px;flex:none}',
       '.dshcp-label{min-width:0;overflow:hidden;text-overflow:ellipsis}',
       // The title row is an inline-size container; narrow rows shed the text
@@ -152,7 +154,7 @@ window.__ModuleLoader__.load({
      * with the last one.
      */
     const store = (() => {
-      let state = { phase: 'idle', value: null, error: '' }
+      let state = { phase: 'idle', value: null, error: '', refreshing: false }
       let pending = null
       let timer = null
       let interval = 60
@@ -185,7 +187,13 @@ window.__ModuleLoader__.load({
         // Coalesce overlapping reads: a reuse-window read and a forced one must
         // not race each other into the same route.
         if (pending !== null) return pending
-        if (state.phase !== 'ready') apply({ ...state, phase: 'loading' })
+        // Keep the numbers on screen while a manual refresh is in flight: the
+        // spinner alone is the feedback, so the reading must not blink away.
+        apply({
+          ...state,
+          phase: state.phase === 'ready' ? 'ready' : 'loading',
+          refreshing: true,
+        })
         pending = requestSnapshot(force, new AbortController().signal)
           .then((value) => {
             const seconds = Number(value.refreshSeconds)
@@ -194,10 +202,11 @@ window.__ModuleLoader__.load({
               phase: 'ready',
               value,
               error: value.ok === true ? '' : (typeof value.error === 'string' ? value.error : ''),
+              refreshing: false,
             })
           })
           .catch((error) => {
-            apply({ phase: 'ready', value: null, error: describe(error) })
+            apply({ phase: 'ready', value: null, error: describe(error), refreshing: false })
           })
           .then(() => {
             pending = null
@@ -260,6 +269,7 @@ window.__ModuleLoader__.load({
         autoExhausted,
         blocked: ok && (value.isBlocked === true || autoExhausted),
         loading: state.phase === 'loading' || state.phase === 'idle',
+        busy: state.phase !== 'ready' || state.refreshing === true,
         missingKey: !ok && value !== null && value.code === 'no-key',
         showAuto: ok && (value.autoEnabled === true || value.autoUsedUsd > 0),
         showAdvanced: ok && (value.advancedEnabled === true || value.advancedUsedUsd > 0),
@@ -303,12 +313,15 @@ window.__ModuleLoader__.load({
     /** One seat's button, with the shared polling and the full tooltip. */
     function Chip(props) {
       const { label, reading, title, marker, className } = props
-      const loading = reading.loading
+      // Busy covers both the first read and a manual refresh, so a click spins
+      // the gauge even though the previous reading stays visible.
+      const busy = reading.busy
       return h('span', { className: `dshcp-anchor${className === undefined ? '' : ` ${className}`}` },
         h('button', {
           type: 'button',
           className: 'dshcp-pill',
-          'data-state': loading ? 'loading' : reading.ok ? (reading.blocked ? 'blocked' : 'ready') : 'error',
+          'data-state': busy ? 'loading' : reading.ok ? (reading.blocked ? 'blocked' : 'ready') : 'error',
+          'aria-busy': busy ? 'true' : undefined,
           'data-coding-plan-balance': marker,
           title,
           // The visible run is terse by design, so the accessible name is the
@@ -318,7 +331,7 @@ window.__ModuleLoader__.load({
             void store.refresh(true)
           },
         },
-        h(GaugeIcon, { className: loading ? 'dshcp-busy' : undefined }),
+        h(GaugeIcon, { className: busy ? 'dshcp-busy' : undefined }),
         h('span', { className: 'dshcp-label' }, label)))
     }
 
