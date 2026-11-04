@@ -1,7 +1,8 @@
 /**
- * Browser half of the Coding Plan balance widget: one compact chip in the
- * Session header's utility row that polls the Host's own authenticated route
- * and shows the plan's USD usage.
+ * Browser half of the Coding Plan balance widget. One shared snapshot feeds two
+ * seats: the cycle total under the composer (`conversation.composer.dock`) and
+ * the auto-model bucket in the Session header (`conversation.session.header.
+ * utilities`). Both poll the Host's own authenticated route.
  */
 
 window.__ModuleLoader__.load({
@@ -10,7 +11,7 @@ window.__ModuleLoader__.load({
     const React = require('react')
     const h = React.createElement
 
-    /** Locale namespace the pill's registration seat binds to. */
+    /** Locale namespace the registrations' seats bind to. */
     const NS = 'codingPlanBalance'
 
     const DICT = {
@@ -59,6 +60,7 @@ window.__ModuleLoader__.load({
     const CSS = [
       '.dshcp-anchor{display:inline-flex;align-items:center;min-width:0;max-width:180px;',
       'font-size:12px;line-height:22px}',
+      '.dshcp-anchor.dshcp-wide{max-width:none}',
       '.dshcp-pill{display:inline-flex;align-items:center;gap:4px;box-sizing:border-box;max-width:100%;height:22px;',
       'padding:0 6px;border:none;border-radius:var(--dsw-radius-xs);background:transparent;',
       'color:var(--dsw-alias-label-tertiary);font:inherit;font-variant-numeric:tabular-nums;line-height:inherit;',
@@ -115,12 +117,23 @@ window.__ModuleLoader__.load({
       return typeof value === 'number' && Number.isFinite(value) && value > 0 ? usd(value) : t('unlimited')
     }
 
-    /** Integer percentage, defaulting to 0 for a value the API omitted. */
-    function pct(value) {
-      return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
+    /** Compact USD amount: cents only when they carry information. */
+    function amount(value) {
+      const rounded = Math.round((typeof value === 'number' && Number.isFinite(value) ? value : 0) * 100) / 100
+      return `$${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)}`
     }
 
-    /** Local rendering of an ISO8601 instant. */
+    /** Compact limit, naming the unconfigured case. */
+    function amountLimit(value, t) {
+      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? amount(value) : t('unlimited')
+    }
+
+    /** Integer percentage, defaulting to 0 for a value the API omitted. */
+    function pct(value) {
+      return Number.isFinite(value) ? Math.round(value) : 0
+    }
+
+    /** Local wall-clock rendering of an ISO timestamp. */
     function localTime(value) {
       if (typeof value !== 'string' || value === '') return '—'
       const at = new Date(value)
@@ -132,10 +145,98 @@ window.__ModuleLoader__.load({
       return error instanceof Error ? error.message : String(error)
     }
 
+    /**
+     * One shared reading for both seats: two independent pollers would double
+     * the Host traffic, and the click-to-refresh gesture should refresh what
+     * both seats display. Polling starts with the first subscriber and stops
+     * with the last one.
+     */
+    const store = (() => {
+      let state = { phase: 'idle', value: null, error: '' }
+      let pending = null
+      let timer = null
+      let interval = 60
+      const listeners = new Set()
+
+      const emit = () => {
+        const snapshot = state
+        listeners.forEach((listener) => {
+          listener(snapshot)
+        })
+      }
+      const apply = (next) => {
+        state = next
+        emit()
+      }
+      const clearTimer = () => {
+        if (timer !== null) {
+          window.clearInterval(timer)
+          timer = null
+        }
+      }
+      const armTimer = () => {
+        clearTimer()
+        timer = window.setInterval(() => {
+          void load(false)
+        }, Math.max(20, interval) * 1000)
+      }
+
+      function load(force) {
+        // Coalesce overlapping reads: a reuse-window read and a forced one must
+        // not race each other into the same route.
+        if (pending !== null) return pending
+        if (state.phase !== 'ready') apply({ ...state, phase: 'loading' })
+        pending = requestSnapshot(force, new AbortController().signal)
+          .then((value) => {
+            const seconds = Number(value.refreshSeconds)
+            interval = Number.isFinite(seconds) && seconds >= 20 ? seconds : 60
+            apply({
+              phase: 'ready',
+              value,
+              error: value.ok === true ? '' : (typeof value.error === 'string' ? value.error : ''),
+            })
+          })
+          .catch((error) => {
+            apply({ phase: 'ready', value: null, error: describe(error) })
+          })
+          .then(() => {
+            pending = null
+            if (listeners.size > 0) armTimer()
+          })
+        return pending
+      }
+
+      return {
+        get: () => state,
+        subscribe(listener) {
+          listeners.add(listener)
+          if (listeners.size === 1) {
+            armTimer()
+            void load(true)
+          }
+          return () => {
+            listeners.delete(listener)
+            if (listeners.size === 0) clearTimer()
+          }
+        },
+        refresh: (force) => load(force),
+      }
+    })()
+
+    /** The shared snapshot, re-rendered on every poll. */
+    function useSnapshot() {
+      const [state, setState] = React.useState(store.get())
+      React.useEffect(() => {
+        setState(store.get())
+        return store.subscribe(setState)
+      }, [])
+      return state
+    }
+
     /** A quarter-gauge mark; the artwork carries its own shape, not a theme token. */
     function GaugeIcon(props) {
       return h('svg', {
-        viewBox: '0 0 16 16', width: 14, height: 14, 'aria-hidden': true, focusable: false,
+        viewBox: '0 0 16 16', width: 13, height: 13, 'aria-hidden': true, focusable: false,
         className: props.className,
       },
       h('path', {
@@ -148,88 +249,28 @@ window.__ModuleLoader__.load({
       }))
     }
 
-    /** Compact USD amount: cents only when they carry information. */
-    function amount(value) {
-      const rounded = Math.round((typeof value === 'number' && Number.isFinite(value) ? value : 0) * 100) / 100
-      return `$${Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2)}`
-    }
-
-    /** Compact limit, naming the unconfigured case. */
-    function limitCompact(value, t) {
-      return typeof value === 'number' && Number.isFinite(value) && value > 0 ? amount(value) : t('unlimited')
-    }
-
-    /**
-     * Header chip showing the bucket that is actually being spent: the auto
-     * model's monthly quota when the plan has one, otherwise the cycle quota.
-     * It polls on the interval the Host reports and refetches on click; a
-     * failed read stays visible instead of hiding the entry.
-     */
-    function BalanceChip(props) {
-      const t = typeof props.t === 'function' ? props.t : (key) => (DICT.en[key] !== undefined ? DICT.en[key] : key)
-      const [state, setState] = React.useState({ phase: 'loading', value: null, error: '' })
-      /** One read trigger: mounting and clicking ask for a fresh snapshot, the timer reuses the Host's window. */
-      const [attempt, setAttempt] = React.useState({ seq: 0, force: true })
-      const intervalRef = React.useRef(60)
-
-      React.useEffect(() => {
-        let cancelled = false
-        const controller = new AbortController()
-        setState((previous) => ({ ...previous, phase: 'loading' }))
-        requestSnapshot(attempt.force, controller.signal)
-          .then((value) => {
-            if (cancelled) return
-            const seconds = Number(value.refreshSeconds)
-            intervalRef.current = Number.isFinite(seconds) && seconds >= 20 ? seconds : 60
-            setState({
-              phase: 'ready',
-              value,
-              error: value.ok === true ? '' : (typeof value.error === 'string' ? value.error : ''),
-            })
-          })
-          .catch((error) => {
-            if (cancelled) return
-            setState({ phase: 'ready', value: null, error: describe(error) })
-          })
-        return () => {
-          cancelled = true
-          controller.abort()
-        }
-      }, [attempt])
-
-      React.useEffect(() => {
-        const id = window.setInterval(() => {
-          setAttempt((previous) => ({ seq: previous.seq + 1, force: false }))
-        }, Math.max(20, intervalRef.current) * 1000)
-        return () => {
-          window.clearInterval(id)
-        }
-      }, [attempt])
-
+    /** Readings the component derives once per render. */
+    function read(state) {
       const value = state.value
       const ok = value !== null && value.ok === true
       const autoExhausted = ok && value.autoExhausted === true
-      const blocked = ok && (value.isBlocked === true || autoExhausted)
-      const loading = state.phase === 'loading'
-      const missingKey = !ok && value !== null && value.code === 'no-key'
-      const showAuto = ok && (value.autoEnabled === true || value.autoUsedUsd > 0)
-      const showAdvanced = ok && (value.advancedEnabled === true || value.advancedUsedUsd > 0)
-      /** One short run for the header chip; the tooltip carries the detail. */
-      let label
-
-      if (ok) {
-        label = showAuto
-          ? `${t('auto')} ${amount(value.autoUsedUsd)}/${limitCompact(value.autoLimitUsd, t)}`
-          : `${amount(value.usedUsd)}/${limitCompact(value.limitUsd, t)}`
-        if (value.isBlocked === true) label = `${label} ${t('blocked')}`
-        else if (autoExhausted) label = `${label} ${t('autoUsedUp')}`
-      } else if (loading) {
-        label = t('loading')
-      } else {
-        label = missingKey ? t('noKey') : t('error')
+      return {
+        value,
+        ok,
+        autoExhausted,
+        blocked: ok && (value.isBlocked === true || autoExhausted),
+        loading: state.phase === 'loading' || state.phase === 'idle',
+        missingKey: !ok && value !== null && value.code === 'no-key',
+        showAuto: ok && (value.autoEnabled === true || value.autoUsedUsd > 0),
+        showAdvanced: ok && (value.advancedEnabled === true || value.advancedUsedUsd > 0),
       }
+    }
 
+    /** The full reading both tooltips show. */
+    function readout(reading, state, t) {
+      const { value, ok, autoExhausted, showAuto, showAdvanced } = reading
       const detail = []
+
       if (ok) {
         detail.push(`${value.planName === '' ? t('plan') : value.planName} · ${value.planStatus === '' ? '—' : value.planStatus}`)
         detail.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`)
@@ -256,25 +297,98 @@ window.__ModuleLoader__.load({
       }
       if (value !== null && value.userName !== undefined && value.userName !== '') detail.push(value.userName)
       detail.push(t('refreshHint'))
-      const title = detail.join('\n')
+      return detail.join('\n')
+    }
 
-      const chip = h('button', {
-        type: 'button',
-        className: 'dshcp-pill',
-        'data-state': loading ? 'loading' : ok ? (blocked ? 'blocked' : 'ready') : 'error',
-        'data-coding-plan-balance': ok ? 'ready' : loading ? 'loading' : 'error',
-        title,
-        'aria-label': `${t('plan')}: ${title.replace(/\n/g, ' ')}`,
-        onClick: () => {
-          setAttempt((previous) => ({ seq: previous.seq + 1, force: true }))
+    /** One seat's button, with the shared polling and the full tooltip. */
+    function Chip(props) {
+      const { label, reading, title, marker, className } = props
+      const loading = reading.loading
+      return h('span', { className: `dshcp-anchor${className === undefined ? '' : ` ${className}`}` },
+        h('button', {
+          type: 'button',
+          className: 'dshcp-pill',
+          'data-state': loading ? 'loading' : reading.ok ? (reading.blocked ? 'blocked' : 'ready') : 'error',
+          'data-coding-plan-balance': marker,
+          title,
+          // The visible run is terse by design, so the accessible name is the
+          // same complete reading the tooltip shows.
+          'aria-label': title.replace(/\n/g, ' · '),
+          onClick: () => {
+            void store.refresh(true)
+          },
         },
-      },
-      h(GaugeIcon, { className: loading ? 'dshcp-busy' : undefined }),
-      h('span', { className: 'dshcp-label' }, label))
+        h(GaugeIcon, { className: loading ? 'dshcp-busy' : undefined }),
+        h('span', { className: 'dshcp-label' }, label)))
+    }
+
+    /**
+     * Composer-dock seat: the cycle's total usage, one short run so it stays
+     * readable beside the shipped activity/usage entries.
+     */
+    function CycleDock(props) {
+      const t = typeof props.t === 'function' ? props.t : (key) => (DICT.en[key] !== undefined ? DICT.en[key] : key)
+      const state = useSnapshot()
+      const reading = read(state)
+      const title = readout(reading, state, t)
+      const { value, ok, loading, missingKey } = reading
+      let label
+
+      if (ok) {
+        label = `${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`
+        if (value.isBlocked === true) label = `${label} · ${t('blocked')}`
+      } else if (loading) {
+        label = t('loading')
+      } else {
+        label = missingKey ? t('noKey') : t('error')
+      }
 
       return h(React.Fragment, null,
         h('style', { key: 'style' }, CSS),
-        h('span', { className: 'dshcp-anchor' }, chip))
+        h(Chip, {
+          label,
+          reading,
+          title,
+          marker: 'cycle',
+          className: 'dshcp-wide',
+        }))
+    }
+
+    /**
+     * Header seat: the auto-model bucket, which is what an `auto(free)` model
+     * actually spends. Plans without that bucket keep the header clean — the
+     * cycle total already sits in the composer dock.
+     */
+    function AutoChip(props) {
+      const t = typeof props.t === 'function' ? props.t : (key) => (DICT.en[key] !== undefined ? DICT.en[key] : key)
+      const state = useSnapshot()
+      const reading = read(state)
+      const { value, ok, autoExhausted } = reading
+
+      // Nothing to say before the first reading, or when the plan has no auto
+      // bucket: the sibling seat already covers the cycle.
+      if (state.phase === 'idle' || (ok && !reading.showAuto)) return null
+
+      const title = readout(reading, state, t)
+      let label
+
+      if (ok) {
+        label = `${t('auto')} ${amount(value.autoUsedUsd)}/${amountLimit(value.autoLimitUsd, t)}`
+        if (autoExhausted) label = `${label} · ${t('autoUsedUp')}`
+      } else if (reading.loading) {
+        label = t('loading')
+      } else {
+        label = reading.missingKey ? t('noKey') : t('error')
+      }
+
+      return h(React.Fragment, null,
+        h('style', { key: 'style' }, CSS),
+        h(Chip, {
+          label,
+          reading,
+          title,
+          marker: 'auto',
+        }))
     }
 
     return {
@@ -285,14 +399,22 @@ window.__ModuleLoader__.load({
           ctx.effect(() => locale.register(NS, 'zh', DICT.zh), 'coding-plan-balance: zh dictionary')
           ctx.effect(() => locale.register(NS, 'en', DICT.en), 'coding-plan-balance: en dictionary')
         }
-        // The Session header's right-aligned utility row: always on screen,
-        // and it costs no vertical space below the composer.
+        // Total usage belongs under the composer, where the shipped activity
+        // and usage pills already sit.
+        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'coding-plan-balance',
+          order: 2,
+          locale: NS,
+        }, CycleDock))
+        // The auto bucket is a header-level reading: always on screen, no
+        // vertical cost.
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
-          id: 'coding-plan-balance',
+          id: 'coding-plan-balance-header',
           order: 10,
           locale: NS,
-        }, BalanceChip))
+        }, AutoChip))
       },
     }
   },
