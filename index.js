@@ -58,6 +58,18 @@ const SNAPSHOT_SCHEMA = {
     fiveHourLimitUsd: { type: 'number', description: 'Effective 5-hour window limit in USD; 0 means unconfigured.' },
     fiveHourWindowStartAt: { type: 'string', description: 'ISO8601 5-hour window start.' },
     fiveHourWindowEndAt: { type: 'string', description: 'ISO8601 5-hour window end.' },
+    todayUsedUsd: { type: 'number', description: 'USD spent today on this credential.' },
+    todayPercent: { type: 'integer', description: 'Daily usage percentage the API reports.' },
+    todayAlertPercent: { type: 'integer', description: 'Daily usage percentage at which the API raises an alert.' },
+    autoEnabled: { type: 'boolean', description: 'Whether the auto model has its own separate limit.' },
+    autoUsedUsd: { type: 'number', description: 'USD used from the auto-model bucket.' },
+    autoLimitUsd: { type: 'number', description: 'USD limit of the auto-model bucket; 0 means unconfigured.' },
+    autoPercent: { type: 'integer', description: 'Integer share of the auto-model bucket already used.' },
+    autoExhausted: { type: 'boolean', description: 'Whether the API reports the auto-model bucket as used up.' },
+    advancedEnabled: { type: 'boolean', description: 'Whether the high-cost models have their own separate limit.' },
+    advancedUsedUsd: { type: 'number', description: 'USD used from the high-cost-model bucket.' },
+    advancedLimitUsd: { type: 'number', description: 'USD limit of the high-cost-model bucket; 0 means unconfigured.' },
+    advancedPercent: { type: 'integer', description: 'Integer share of the high-cost-model bucket already used.' },
     userId: { type: 'string', description: 'Employee id of the credential owner.' },
     userName: { type: 'string', description: 'Display name of the credential owner.' },
     department: { type: 'string', description: 'Department of the credential owner.' },
@@ -121,7 +133,7 @@ export function apply(ctx, config) {
   if (cfg.tool && tools !== undefined) {
     ctx.effect(() => tools.register({
       name: NAME,
-      description: 'Read this profile\'s Ctrip Coding Plan quota: the current billing cycle\'s USD usage and limit, its reset time, and the rolling 5-hour window usage. Use it when the user asks how much Coding Plan quota is left.',
+      description: 'Read this profile\'s Ctrip Coding Plan quota: the billing cycle\'s USD usage and limit with its reset time, the separate auto-model and high-cost-model monthly buckets, today\'s spend, and the rolling 5-hour window. Use it when the user asks how much Coding Plan quota is left, how much auto-model quota is gone, or which limit is closest.',
       parameters: { type: 'object', properties: {}, additionalProperties: false },
       output: {
         schema: SNAPSHOT_SCHEMA,
@@ -221,9 +233,18 @@ async function collectFrom(base, cfg, apiKey, signal) {
   if (quota.status === 'rejected') throw quota.reason
   const cycle = record(quota.value)
   const window5h = fiveHour.status === 'fulfilled' ? record(fiveHour.value) : {}
+  const hasWindow = fiveHour.status === 'fulfilled'
   const profile = user.status === 'fulfilled' ? record(user.value) : {}
   const limitUsd = number(cycle.limitUsd)
   const usedUsd = number(cycle.usedUsd)
+  // `quota/me` repeats the 5-hour numbers, so a failed window read still shows
+  // usage; only the live window bounds and `source` need that second request.
+  const fiveHourLimitUsd = number(hasWindow ? window5h.limit_usd : cycle.fiveHourLimitUsd)
+  const fiveHourUsedUsd = number(hasWindow ? window5h.used_usd : cycle.fiveHourUsedUsd)
+  const autoUsedUsd = number(cycle.autoUsedUsd)
+  const autoLimitUsd = number(cycle.autoLimitUsd)
+  const advancedUsedUsd = number(cycle.advancedModelUsedUsd)
+  const advancedLimitUsd = number(cycle.advancedModelLimitUsd)
   return {
     ok: true,
     fetchedAt: new Date().toISOString(),
@@ -238,13 +259,27 @@ async function collectFrom(base, cfg, apiKey, signal) {
     percent: Math.round(number(cycle.percent)),
     resetAt: string(cycle.resetAt),
     isBlocked: cycle.isBlocked === true,
-    fiveHourEnabled: window5h.enabled === true,
-    fiveHourSource: string(window5h.source),
-    fiveHourUsedUsd: number(window5h.used_usd),
-    fiveHourRemainingUsd: number(window5h.remaining_usd),
-    fiveHourLimitUsd: number(window5h.limit_usd),
-    fiveHourWindowStartAt: string(window5h.window_start_at),
-    fiveHourWindowEndAt: string(window5h.window_end_at),
+    fiveHourEnabled: hasWindow ? window5h.enabled === true : cycle.fiveHourEnabled === true,
+    fiveHourSource: hasWindow ? string(window5h.source) : '',
+    fiveHourUsedUsd,
+    fiveHourRemainingUsd: hasWindow
+      ? number(window5h.remaining_usd, Math.max(0, fiveHourLimitUsd - fiveHourUsedUsd))
+      : Math.max(0, fiveHourLimitUsd - fiveHourUsedUsd),
+    fiveHourLimitUsd,
+    fiveHourWindowStartAt: hasWindow ? string(window5h.window_start_at) : '',
+    fiveHourWindowEndAt: hasWindow ? string(window5h.window_end_at) : string(cycle.fiveHourResetAt),
+    todayUsedUsd: number(cycle.todayUsedUsd),
+    todayPercent: Math.round(number(cycle.todayPercent)),
+    todayAlertPercent: Math.round(number(cycle.todayAlertPct)),
+    autoEnabled: cycle.autoLimitEnabled === true,
+    autoUsedUsd,
+    autoLimitUsd,
+    autoPercent: percentOf(autoUsedUsd, autoLimitUsd),
+    autoExhausted: cycle.autoPlanExhausted === true,
+    advancedEnabled: cycle.advancedModelLimitEnabled === true,
+    advancedUsedUsd,
+    advancedLimitUsd,
+    advancedPercent: percentOf(advancedUsedUsd, advancedLimitUsd),
     userId: string(profile.userId),
     userName: string(profile.userName),
     department: string(profile.department),
@@ -307,6 +342,18 @@ function failure(code, error) {
     fiveHourLimitUsd: 0,
     fiveHourWindowStartAt: '',
     fiveHourWindowEndAt: '',
+    todayUsedUsd: 0,
+    todayPercent: 0,
+    todayAlertPercent: 0,
+    autoEnabled: false,
+    autoUsedUsd: 0,
+    autoLimitUsd: 0,
+    autoPercent: 0,
+    autoExhausted: false,
+    advancedEnabled: false,
+    advancedUsedUsd: 0,
+    advancedLimitUsd: 0,
+    advancedPercent: 0,
     userId: '',
     userName: '',
     department: '',
@@ -321,6 +368,20 @@ function summarize(value) {
     `Plan: ${value.planName === '' ? '(unnamed)' : value.planName} (${value.planStatus === '' ? 'unknown status' : value.planStatus})`,
     `Cycle: $${value.usedUsd.toFixed(2)} used of $${value.limitUsd.toFixed(2)} (${value.percent}%), $${value.remainingUsd.toFixed(2)} left, resets ${value.resetAt === '' ? 'unknown' : value.resetAt}`,
   ]
+  if (value.autoEnabled || value.autoUsedUsd > 0) {
+    const capacity = value.autoLimitUsd > 0 ? ` of $${value.autoLimitUsd.toFixed(2)}` : ''
+    const left = value.autoLimitUsd > 0 ? `, $${Math.max(0, value.autoLimitUsd - value.autoUsedUsd).toFixed(2)} left` : ', unconfigured'
+    const exhausted = value.autoExhausted ? ', the API reports this bucket exhausted' : ''
+    lines.push(`auto models: $${value.autoUsedUsd.toFixed(2)} used${capacity} (${value.autoPercent}%)${left}${exhausted}`)
+  } else {
+    lines.push('auto models: no separate limit configured.')
+  }
+  if (value.advancedEnabled || value.advancedUsedUsd > 0) {
+    const capacity = value.advancedLimitUsd > 0 ? ` of $${value.advancedLimitUsd.toFixed(2)}` : ''
+    const left = value.advancedLimitUsd > 0 ? `, $${Math.max(0, value.advancedLimitUsd - value.advancedUsedUsd).toFixed(2)} left` : ', unconfigured'
+    lines.push(`high-cost models: $${value.advancedUsedUsd.toFixed(2)} used${capacity} (${value.advancedPercent}%)${left}`)
+  }
+  lines.push(`Today: $${value.todayUsedUsd.toFixed(2)} (${value.todayPercent}%), alert at ${value.todayAlertPercent}%`)
   if (value.fiveHourEnabled) {
     const limit = value.fiveHourLimitUsd > 0 ? `$${value.fiveHourLimitUsd.toFixed(2)}` : 'unconfigured'
     lines.push(`5-hour window: $${value.fiveHourUsedUsd.toFixed(2)} used of ${limit}, $${value.fiveHourRemainingUsd.toFixed(2)} left, ends ${value.fiveHourWindowEndAt === '' ? 'unknown' : value.fiveHourWindowEndAt}`)
@@ -344,6 +405,12 @@ function number(value, fallback = 0) {
 /** Read a string, or an empty string. */
 function string(value) {
   return typeof value === 'string' ? value : ''
+}
+
+/** Integer share of a capacity already used; 0 while no capacity is configured. */
+function percentOf(used, capacity) {
+  if (!(capacity > 0)) return 0
+  return Math.max(0, Math.round((used / capacity) * 100))
 }
 
 /** Append the API's own message to a diagnostic when it carries one. */

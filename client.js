@@ -27,6 +27,11 @@ window.__ModuleLoader__.load({
         updatedAt: '更新于',
         refreshHint: '点击刷新',
         unlimited: '不限',
+        auto: 'auto',
+        advanced: '高阶',
+        today: '今日',
+        autoUsedUp: 'auto 已用尽',
+        alertAt: '告警',
       },
       en: {
         plan: 'Coding Plan',
@@ -42,6 +47,11 @@ window.__ModuleLoader__.load({
         updatedAt: 'Updated',
         refreshHint: 'Click to refresh',
         unlimited: 'no limit',
+        auto: 'auto',
+        advanced: 'High-cost',
+        today: 'Today',
+        autoUsedUp: 'auto used up',
+        alertAt: 'alert at',
       },
     }
 
@@ -98,6 +108,11 @@ window.__ModuleLoader__.load({
     /** Format a USD limit, naming the unconfigured case. */
     function limit(value, t) {
       return typeof value === 'number' && Number.isFinite(value) && value > 0 ? usd(value) : t('unlimited')
+    }
+
+    /** Integer percentage, defaulting to 0 for a value the API omitted. */
+    function pct(value) {
+      return typeof value === 'number' && Number.isFinite(value) ? Math.round(value) : 0
     }
 
     /** Local rendering of an ISO8601 instant. */
@@ -186,19 +201,25 @@ window.__ModuleLoader__.load({
 
       const value = state.value
       const ok = value !== null && value.ok === true
-      const blocked = ok && value.isBlocked === true
+      const autoExhausted = ok && value.autoExhausted === true
+      const blocked = ok && (value.isBlocked === true || autoExhausted)
       const loading = state.phase === 'loading'
       const missingKey = !ok && value !== null && value.code === 'no-key'
+      const showAuto = ok && (value.autoEnabled === true || value.autoUsedUsd > 0)
+      const showAdvanced = ok && (value.advancedEnabled === true || value.advancedUsedUsd > 0)
       const parts = []
 
       if (ok) {
         parts.push(value.planName === '' ? t('plan') : value.planName)
-        parts.push(`${usd(value.usedUsd)} / ${limit(value.limitUsd, t)}`)
-        parts.push(`${Number.isFinite(value.percent) ? value.percent : 0}%`)
+        parts.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`)
+        if (showAuto) {
+          parts.push(`${t('auto')} ${usd(value.autoUsedUsd)} / ${limit(value.autoLimitUsd, t)} (${pct(value.autoPercent)}%)`)
+        }
         if (value.fiveHourEnabled) {
           parts.push(`${t('fiveHour')} ${usd(value.fiveHourUsedUsd)} / ${limit(value.fiveHourLimitUsd, t)}`)
         }
-        if (blocked) parts.push(t('blocked'))
+        if (value.isBlocked === true) parts.push(t('blocked'))
+        if (autoExhausted) parts.push(t('autoUsedUp'))
       } else if (loading) {
         parts.push(t('plan'), t('loading'))
       } else {
@@ -208,8 +229,16 @@ window.__ModuleLoader__.load({
       const detail = []
       if (ok) {
         detail.push(`${value.planName === '' ? t('plan') : value.planName} · ${value.planStatus === '' ? '—' : value.planStatus}`)
-        detail.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${Number.isFinite(value.percent) ? value.percent : 0}%)`)
+        detail.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`)
         detail.push(`${t('remaining')} ${usd(value.remainingUsd)}`)
+        if (showAuto) {
+          detail.push(`${t('auto')} ${usd(value.autoUsedUsd)} / ${limit(value.autoLimitUsd, t)} (${pct(value.autoPercent)}%)`)
+          if (autoExhausted) detail.push(t('autoUsedUp'))
+        }
+        if (showAdvanced) {
+          detail.push(`${t('advanced')} ${usd(value.advancedUsedUsd)} / ${limit(value.advancedLimitUsd, t)} (${pct(value.advancedPercent)}%)`)
+        }
+        detail.push(`${t('today')} ${usd(value.todayUsedUsd)} (${pct(value.todayPercent)}%), ${t('alertAt')} ${pct(value.todayAlertPercent)}%`)
         detail.push(`${t('reset')} ${localTime(value.resetAt)}`)
         if (value.fiveHourEnabled) {
           detail.push(`${t('fiveHour')} ${usd(value.fiveHourUsedUsd)} / ${limit(value.fiveHourLimitUsd, t)}`)
