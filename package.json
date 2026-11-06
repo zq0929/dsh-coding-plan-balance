@@ -1,6 +1,6 @@
 {
   "name": "dsh-coding-plan-balance",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Coding Plan quota, in two seats: the billing cycle's total usage under the composer, the separate auto-model monthly bucket in the session header, plus high-cost-model and today's buckets in the tooltip; read with the credential your ctrip model provider already uses.",
   "type": "module",
   "license": "MIT",

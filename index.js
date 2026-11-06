@@ -63,12 +63,12 @@ const SNAPSHOT_SCHEMA = {
     todayAlertPercent: { type: 'integer', description: 'Daily usage percentage at which the API raises an alert.' },
     autoEnabled: { type: 'boolean', description: 'Whether the auto model has its own separate limit.' },
     autoUsedUsd: { type: 'number', description: 'USD used from the auto-model bucket.' },
-    autoLimitUsd: { type: 'number', description: 'USD limit of the auto-model bucket; 0 means unconfigured.' },
+    autoLimitUsd: { type: 'number', description: 'USD limit of the auto-model bucket; 0 means the API reports no cap for it.' },
     autoPercent: { type: 'integer', description: 'Integer share of the auto-model bucket already used.' },
     autoExhausted: { type: 'boolean', description: 'Whether the API reports the auto-model bucket as used up.' },
     advancedEnabled: { type: 'boolean', description: 'Whether the high-cost models have their own separate limit.' },
     advancedUsedUsd: { type: 'number', description: 'USD used from the high-cost-model bucket.' },
-    advancedLimitUsd: { type: 'number', description: 'USD limit of the high-cost-model bucket; 0 means unconfigured.' },
+    advancedLimitUsd: { type: 'number', description: 'USD limit of the high-cost-model bucket; 0 means the API reports no cap for it.' },
     advancedPercent: { type: 'integer', description: 'Integer share of the high-cost-model bucket already used.' },
     userId: { type: 'string', description: 'Employee id of the credential owner.' },
     userName: { type: 'string', description: 'Display name of the credential owner.' },
@@ -369,17 +369,25 @@ function summarize(value) {
     `Cycle: $${value.usedUsd.toFixed(2)} used of $${value.limitUsd.toFixed(2)} (${value.percent}%), $${value.remainingUsd.toFixed(2)} left, resets ${value.resetAt === '' ? 'unknown' : value.resetAt}`,
   ]
   if (value.autoEnabled || value.autoUsedUsd > 0) {
-    const capacity = value.autoLimitUsd > 0 ? ` of $${value.autoLimitUsd.toFixed(2)}` : ''
-    const left = value.autoLimitUsd > 0 ? `, $${Math.max(0, value.autoLimitUsd - value.autoUsedUsd).toFixed(2)} left` : ', unconfigured'
-    const exhausted = value.autoExhausted ? ', the API reports this bucket exhausted' : ''
-    lines.push(`auto models: $${value.autoUsedUsd.toFixed(2)} used${capacity} (${value.autoPercent}%)${left}${exhausted}`)
+    // A bucket can keep metering spend after its cap is withdrawn, so a
+    // missing limit means "no cap reported", not a broken reading.
+    if (value.autoLimitUsd > 0) {
+      const left = `, $${Math.max(0, value.autoLimitUsd - value.autoUsedUsd).toFixed(2)} left`
+      const exhausted = value.autoExhausted ? ', the API reports this bucket exhausted' : ''
+      lines.push(`auto models: $${value.autoUsedUsd.toFixed(2)} used of $${value.autoLimitUsd.toFixed(2)} (${value.autoPercent}%)${left}${exhausted}`)
+    } else {
+      lines.push(`auto models: $${value.autoUsedUsd.toFixed(2)} used, the API reports no monthly cap for this bucket`)
+    }
   } else {
     lines.push('auto models: no separate limit configured.')
   }
   if (value.advancedEnabled || value.advancedUsedUsd > 0) {
-    const capacity = value.advancedLimitUsd > 0 ? ` of $${value.advancedLimitUsd.toFixed(2)}` : ''
-    const left = value.advancedLimitUsd > 0 ? `, $${Math.max(0, value.advancedLimitUsd - value.advancedUsedUsd).toFixed(2)} left` : ', unconfigured'
-    lines.push(`high-cost models: $${value.advancedUsedUsd.toFixed(2)} used${capacity} (${value.advancedPercent}%)${left}`)
+    if (value.advancedLimitUsd > 0) {
+      const left = `, $${Math.max(0, value.advancedLimitUsd - value.advancedUsedUsd).toFixed(2)} left`
+      lines.push(`high-cost models: $${value.advancedUsedUsd.toFixed(2)} used of $${value.advancedLimitUsd.toFixed(2)} (${value.advancedPercent}%)${left}`)
+    } else {
+      lines.push(`high-cost models: $${value.advancedUsedUsd.toFixed(2)} used, the API reports no monthly cap for this bucket`)
+    }
   }
   lines.push(`Today: $${value.todayUsedUsd.toFixed(2)} (${value.todayPercent}%), alert at ${value.todayAlertPercent}%`)
   if (value.fiveHourEnabled) {

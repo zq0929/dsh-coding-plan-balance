@@ -286,11 +286,16 @@ window.__ModuleLoader__.load({
         detail.push(`${t('cycle')} ${usd(value.usedUsd)} / ${limit(value.limitUsd, t)} (${pct(value.percent)}%)`)
         detail.push(`${t('remaining')} ${usd(value.remainingUsd)}`)
         if (showAuto) {
-          detail.push(`${t('auto')} ${usd(value.autoUsedUsd)} / ${limit(value.autoLimitUsd, t)} (${pct(value.autoPercent)}%)`)
+          // The upstream can meter this bucket after withdrawing its cap.
+          detail.push(value.autoLimitUsd > 0
+            ? `${t('auto')} ${usd(value.autoUsedUsd)} / ${limit(value.autoLimitUsd, t)} (${pct(value.autoPercent)}%)`
+            : `${t('auto')} ${usd(value.autoUsedUsd)} · ${t('unlimited')}`)
           if (autoExhausted) detail.push(t('autoUsedUp'))
         }
         if (showAdvanced) {
-          detail.push(`${t('advanced')} ${usd(value.advancedUsedUsd)} / ${limit(value.advancedLimitUsd, t)} (${pct(value.advancedPercent)}%)`)
+          detail.push(value.advancedLimitUsd > 0
+            ? `${t('advanced')} ${usd(value.advancedUsedUsd)} / ${limit(value.advancedLimitUsd, t)} (${pct(value.advancedPercent)}%)`
+            : `${t('advanced')} ${usd(value.advancedUsedUsd)} · ${t('unlimited')}`)
         }
         detail.push(`${t('today')} ${usd(value.todayUsedUsd)} (${pct(value.todayPercent)}%), ${t('alertAt')} ${pct(value.todayAlertPercent)}%`)
         detail.push(`${t('reset')} ${localTime(value.resetAt)}`)
@@ -386,7 +391,9 @@ window.__ModuleLoader__.load({
       let label
 
       if (ok) {
-        label = `${t('auto')} ${amount(value.autoUsedUsd)}/${amountLimit(value.autoLimitUsd, t)}`
+        label = value.autoLimitUsd > 0
+          ? `${t('auto')} ${amount(value.autoUsedUsd)}/${amountLimit(value.autoLimitUsd, t)}`
+          : `${t('auto')} ${amount(value.autoUsedUsd)} · ${t('unlimited')}`
         if (autoExhausted) label = `${label} · ${t('autoUsedUp')}`
       } else if (reading.loading) {
         label = t('loading')
